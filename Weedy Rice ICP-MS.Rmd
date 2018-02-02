@@ -1,0 +1,287 @@
+---
+title: "Weedy Rice ICP-MS"
+author: "Fengling Hu"
+output: pdf_document
+classoption: landscape
+---
+load data in
+```{r, include = FALSE}
+dyn.load('/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/jre/lib/server/libjvm.dylib')
+require(xlsx); require(tidyverse); require(reshape); require(mosaic); require(matrixStats)
+setwd("/Users/hufengling/OneDrive - Amherst College/Documents/Amherst/Jeong Research/Weedy Rice")
+
+#read files (rr20parent was removed from Excel Combined files because it is probably contaminated)
+ms1 <- read.xlsx("041217 Combined.xlsx", 1) %>% dplyr::rename(p = p31cps, mn = mn55ppb, fe = fe57ppb, zn = zn66ppb, as = as75ppb, cd = cd111ppb, pb = pb208ppb)
+ms2 <- read.xlsx("050517 Combined.xlsx", 1) %>% dplyr::rename(p = p31cps, mn = mn55ppb, fe = fe57ppb, zn = zn66ppb, as = as75ppb, cd = cd111ppb, pb = pb208ppb)
+ms3 <- read.xlsx("062317 Combined.xlsx", 1) %>% dplyr::rename(p = p31cps, mn = mn55ppb, fe = fe57ppb, zn = zn66ppb, as = as75ppb, cd = cd111ppb, pb = pb208ppb)
+ms4 <- read.xlsx("092717 Combined.xlsx", 1) %>% dplyr::rename(p = p31cps, mn = mn55ppb, fe = fe57ppb, zn = zn66ppb, as = as75ppb, cd = cd111ppb, pb = pb208ppb)
+ms5 <- read.xlsx("101717 Combined.xlsx", 1) %>% dplyr::rename(p = p31cps, mn = mn55ppb, fe = fe57ppb, zn = zn66ppb, as = as75ppb, cd = cd111ppb, pb = pb208ppb)
+
+icpmsRaw <- rbind(ms1, ms2, ms3, ms4, ms5) #join all data together
+
+counts <- summary(icpmsRaw[icpmsRaw$Blank == "N",]$ID)
+counts <- counts[counts != 0]
+counts <- counts %>% as.data.frame()
+counts <- counts %>% cbind(ID = rownames(counts))
+colnames(counts) <- c("numTrials", "ID")
+```
+
+normalize by subtracting trial-specific blanks
+```{r, include = FALSE}
+#Use graphs to check whether to normalize ms4 for MilliQ water
+msblank <- filter(icpmsRaw, Blank == "Y")
+msblank <- msblank[-c(5,9,12),] #remove weird points
+
+xyplot(p~Trial, data = msblank)
+xyplot(mn~Trial, data = msblank)
+xyplot(fe~Trial, data = msblank)
+xyplot(zn~Trial, data = msblank)
+xyplot(as~Trial, data = msblank)
+xyplot(cd~Trial, data = msblank)
+xyplot(pb~Trial, data = msblank)
+
+xyplot(p~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(mn~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(fe~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(zn~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(as~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(cd~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+xyplot(pb~mq, data = msblank[msblank$Trial == 4,], type = c("p","r"))
+
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,p, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,mn, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,fe, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,zn, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,as, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,cd, color = Trial)) + expand_limits(y=0)
+# ggplot(msblank[msblank$Trial == 4,]) + geom_point(aes(mq,pb, color = Trial)) + expand_limits(y=0)
+
+#Looks different sometimes. Let's normalize
+dimq <- vector("list", 7)
+dimq[[1]] <- (lm(p~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[2]] <- (lm(mn~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[3]] <- (lm(fe~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[4]] <- (lm(zn~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[5]] <- (lm(as~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[6]] <- (lm(cd~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+dimq[[7]] <- (lm(pb~mq, data = msblank[msblank$Trial == 4,]) %>% summary())[[4]]
+
+#calculate estimates for metal concentrations in DI and MQ water based on linear regression
+dimq0 <- sapply(dimq, function(x) x[1,1]) %>% t()
+dimq100 <- sapply(dimq, function(x) x[1,1] + x[2,1]*100) %>% t()
+
+avgblank <- sapply(c(1:3,5), function(x) colMedians(as.matrix(msblank[msblank$Trial == x, 3:9]))) %>% t()
+
+#Normalize on blanks! ms#B represent datasets normalized for blanks
+ms1B <- ms1
+ms1B[,3:9] <- apply(ms1[,3:9], 1, function(x) x - avgblank[1,]) %>% t()
+ms2B <- ms2
+ms2B[,3:9] <- apply(ms2[,3:9], 1, function(x) x - avgblank[2,]) %>% t()
+ms3B <- ms3
+ms3B[,3:9] <- apply(ms3[,3:9], 1, function(x) x - avgblank[3,]) %>% t()
+ms4B <- ms4
+
+for(i in 1:nrow(ms4)){
+  x <- ms4[i,]
+  if(x[19]==100)
+    x[3:9] <- x[3:9]-dimq100
+  else if(x[19]==0)
+    x[3:9] <- x[3:9]-dimq0
+  ms4B[i,] <- x
+}
+
+ms5B <- ms5
+ms5B[,3:9] <- apply(ms5[,3:9], 1, function(x) x - avgblank[4,]) %>% t()
+
+rm(avgblank, dimq, dimq0, dimq100, msblank, icpmsRaw, x, i)
+```
+
+normalize by dividing by mass and multiplying by total dilution volume
+```{r, include = FALSE}
+#Normalize on masses and dilutions! ms#N represent completely normalized datasets
+ms1N <- ms1B
+ms2N <- ms2B
+ms3N <- ms3B
+ms4N <- ms4B
+ms5N <- ms5B
+
+#convert to units ppb/mg
+ms1N[,3:9] <- sapply(3:9, function(x) ms1B[,x]*((ms1B[,16] + ms1B[,18])*ms1B[,17]/ms1B[,1]))
+ms2N[,3:9] <- sapply(3:9, function(x) ms2B[,x]*((ms2B[,16] + ms2B[,18])*ms2B[,17]/ms2B[,1]))
+ms3N[,3:9] <- sapply(3:9, function(x) ms3B[,x]*((ms3B[,16] + ms3B[,18])*ms3B[,17]/ms3B[,1]))
+ms4N[,3:9] <- sapply(3:9, function(x) ms4B[,x]*((ms4B[,16] + ms4B[,18])*ms4B[,17]/ms4B[,1]))
+ms5N[,3:9] <- sapply(3:9, function(x) ms5B[,x]*((ms5B[,16] + ms5B[,18])*ms5B[,17]/ms5B[,1]))
+
+rm(ms1B, ms2B, ms3B, ms4B, ms5B , ms1, ms2, ms3, ms4, ms5)
+```
+
+normalize by converting to Z score, scaled to Z-score by common samples run in all trials
+```{r, include = FALSE}
+#join data
+icpmsNorm <- rbind(ms1N, ms2N, ms3N, ms4N, ms5N)
+icpmsNorm <- left_join(icpmsNorm, counts, by = "ID")
+
+colnames(icpmsNorm) <- c("mass","id","p","mn","fe","zn","as","cd","pb","trial","seeds","filtered","husks","parent","blank","acid","dil","peroxide","mq","numTrials")
+icpmsNorm$trial <- as.factor(icpmsNorm$trial)
+
+commonIDs <- icpmsNorm %>% group_by(id) %>% summarize(trialTotal = sum(trial %>% as.numeric()))
+commonIDs <- commonIDs[commonIDs$trialTotal == 15, 1]
+commonIDs <- cbind(commonIDs, common = rep("Y", nrow(commonIDs)))
+
+icpmsNorm <- left_join(icpmsNorm, commonIDs, by = "id")
+
+#calculate mean and variance of common samples run in all trials
+trialSummary <- (icpmsNorm[icpmsNorm$common == "Y", ] %>% group_by(trial) %>% summarize(pTrialMean = mean(p),mnTrialMean = mean(mn),feTrialMean = mean(fe),znTrialMean = mean(zn),asTrialMean = mean(as),cdTrialMean = mean(cd),pbTrialMean = mean(pb),pTrialSD = sd(p),mnTrialSD = sd(mn),feTrialSD = sd(fe),znTrialSD = sd(zn),asTrialSD = sd(as),cdTrialSD = sd(cd),pbTrialSD = sd(pb)))[1:5,2:15]
+
+#scale to z-score
+scaleCommon <- function(df, n){
+  temp <- matrix(nrow = nrow(df), ncol = 7)
+  for(i in 3:9){
+    temp[,i-2] <- (df[,i]-rep(trialSummary[n,i-2] %>% as.numeric(),nrow(df)))/(rep(trialSummary[n,i+5] %>% as.numeric(),nrow(df)))
+  }
+  temp
+}
+
+ms1N <- ms1N %>% cbind(scaleCommon(ms1N,1))
+ms2N <- ms2N %>% cbind(scaleCommon(ms2N,2))
+ms3N <- ms3N %>% cbind(scaleCommon(ms3N,3))
+ms4N <- ms4N %>% cbind(scaleCommon(ms4N,4))
+ms5N <- ms5N %>% cbind(scaleCommon(ms5N,5))
+
+#scale by mean and sd of each trial
+# ams1 <- lapply(3:9, function(x) ms1N[,x] %>% scale())
+# ams2 <- sapply(3:9, function(x) ms2N[,x] %>% scale())
+# ams3 <- sapply(3:9, function(x) ms3N[,x] %>% scale())
+# ams4 <- sapply(3:9, function(x) ms4N[,x] %>% scale())
+```
+
+reformat datasets
+```{r, include = FALSE}
+#join data
+icpms <- rbind(ms1N, ms2N, ms3N, ms4N, ms5N)
+icpms <- left_join(icpms, counts, by = "ID")
+
+colnames(icpms) <- c("mass","id","p","mn","fe","zn","as","cd","pb","trial","seeds","filtered","husks","parent","blank","acid","dil","peroxide","mq","pZ","mnZ","feZ","znZ","asZ","cdZ","pbZ", "numTrials")
+icpms$trial <- as.factor(icpms$trial)
+icpms$numTrials <- as.factor(icpms$numTrials)
+
+icpms <- icpms[icpms$blank == "N",]
+icpms$mq <- as.factor(icpms$mq)
+icpms <- icpms[order(icpms$id),]
+
+rm(ams1,ams2,ams3,ams4,ams5,ms1B,ms2B,ms3B,ms4B,ms5B,ms1,ms2,ms3,ms4,ms5,ms1N,ms2N,ms3N,ms4N,ms5N,trialSummary, scaleCommon)
+```
+
+Looking for Batch Effects
+
+```{r, echo = FALSE, fig.height = 7, fig.width = 10}
+#looking for obvious batch effect
+ggplot(icpms, aes(trial, p, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Phosphorous normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, mn, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Manganese normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, fe, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Iron normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, zn, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Zinc normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, as, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Arsenic normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, cd, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Cadmium normalized ppb by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, pb, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Lead normalized ppb by Trial by MilliQ/DI")
+
+#trying to control for batch effect using scaling (conversion to z-score)
+ggplot(icpms, aes(trial, pZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0)+ ggtitle("Phosphorous Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, mnZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Manganese Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, feZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Iron Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, znZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Zinc Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, asZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Arsenic Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, cdZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Cadmium Z-scores by Trial by MilliQ/DI")
+ggplot(icpms, aes(trial, pbZ, color = mq)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .2, height = 0) + ggtitle("Lead Z-scores by Trial by MilliQ/DI")
+```
+
+Looking at metal content (ppb/mg) by trial per ID
+
+```{r, echo = FALSE, fig.width = 10, fig.height = 7}
+#visualizing individuals for all elements
+ggplot(icpms, aes(id, p)) + geom_boxplot() + geom_point(aes(id, p, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Phosphorous (ppb) by ID")
+ggplot(icpms, aes(id, mn)) + geom_boxplot() + geom_point(aes(id, mn, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Manganese (ppb) by ID")
+ggplot(icpms, aes(id, fe)) + geom_boxplot() + geom_point(aes(id, fe, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Iron (ppb) by ID")
+ggplot(icpms, aes(id, zn)) + geom_boxplot() + geom_point(aes(id, zn, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Zinc (ppb) by ID")
+ggplot(icpms, aes(id, as)) + geom_boxplot() + geom_point(aes(id, as, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Arsenic (ppb) by ID")
+ggplot(icpms, aes(id, cd)) + geom_boxplot() + geom_point(aes(id, cd, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Cadmium (ppb) by ID")
+ggplot(icpms, aes(id, pb)) + geom_boxplot() + geom_point(aes(id, pb, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Lead (ppb) by ID")
+```
+
+Looking at metal content (Z-score) by trial per ID
+
+```{r, echo = FALSE, fig.width = 10, fig.height = 7}
+#visualizing individuals for all elements
+ggplot(icpms, aes(id, pZ)) + geom_boxplot() + geom_point(aes(id, pZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Phosphorous (Z) by ID")
+ggplot(icpms, aes(id, mnZ)) + geom_boxplot() + geom_point(aes(id, mnZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Manganese (Z) by ID")
+ggplot(icpms, aes(id, feZ)) + geom_boxplot() + geom_point(aes(id, feZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Iron (Z) by ID")
+ggplot(icpms, aes(id, znZ)) + geom_boxplot() + geom_point(aes(id, znZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Zinc (Z) by ID")
+ggplot(icpms, aes(id, asZ)) + geom_boxplot() + geom_point(aes(id, asZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Arsenic (Z) by ID")
+ggplot(icpms, aes(id, cdZ)) + geom_boxplot() + geom_point(aes(id, cdZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Cadmium (Z) by ID")
+ggplot(icpms, aes(id, pbZ)) + geom_boxplot() + geom_point(aes(id, pbZ, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Lead (Z) by ID")
+
+rm(bms1, bms2, bms3, bms4, commonIDs, counts, icpmsNorm, icpmsRaw)
+```
+
+Looking at summary measures multiple trials and uniqueness
+
+```{r, echo = FALSE, fig.height = 7, fig.width = 10}
+#collecting all trials as averages
+medianZs <- icpms %>% group_by(id) %>% summarize(medianpZ = median(pZ), medianmnZ = median(mnZ), medianfeZ = median(feZ), medianznZ = median(znZ), medianasZ = median(asZ), mediancdZ = median(cdZ), medianpbZ = median(pbZ)) %>% mutate(absSum = abs(medianpZ) + abs(medianmnZ) + abs(medianfeZ) + abs(medianznZ) + abs(medianasZ) + abs(mediancdZ) + abs(medianpbZ), sqSum = medianpZ^2 + medianmnZ^2 + medianfeZ^2 + medianznZ^2 + medianasZ^2 + mediancdZ^2 + medianpbZ^2) %>% as.data.frame()
+
+#reshaping dataset
+medianZmelt <- melt(medianZs, id = "id", variable_name = "measures")
+medianZmeltvars <- medianZmelt[medianZmelt$measures != "absSum",]
+medianZmeltvars <- medianZmeltvars[medianZmeltvars$measures != "sqSum",]
+
+#average for all metals across each id
+ggplot(medianZmeltvars) + geom_point(aes(id, value, color = measures)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Median Z-scores (across all trials) of all metals by ID\n (larger value represents more overall deviance from the norm")
+
+#Sum of absolute values of mean Z scores
+ggplot(medianZmelt[medianZmelt$measures == "absSum",]) + geom_point(aes(id, value)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Sum of absolute values of median Z-scores for all elements by ID\n (larger value represents more overall deviance from the norm)")
+
+ggplot(medianZmelt[medianZmelt$measures == "sqSum",]) + geom_point(aes(id, value)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Sum of squares of median Z-scores for all elements by ID\n (larger value represents more overall deviance from the norm)")
+
+rm(medianZs, medianZmelt, medianZmeltvars, commonIDs, counts)
+```
+
+building dataframe to compare husk vs no husk
+
+```{r}
+#sort by accession
+icpmsAcc <- icpms[icpms$trial != 5,] %>% group_by(id) %>% summarize(medianp = median(p), medianmn = median(mn), medianfe = median(fe), medianzn = median(zn), medianas = median(as), mediancd = median(cd), medianpb = median(pb), medianpZ = median(pZ), medianmnZ = median(mnZ), medianfeZ = median(feZ), medianznZ = median(znZ), medianasZ = median(asZ), mediancdZ = median(cdZ), medianpbZ = median(pbZ)) %>% as.data.frame()
+
+icpms4 <- icpms[icpms$trial == 4,]
+icpms5 <- icpms[icpms$trial == 5,]
+
+#join median for trial 1-4, values for trial 4, and values for trial 5 together
+icpmshusk <- left_join(icpms4, icpms5, by = c("id", "parent"))[,c(2:9, 20:26, 29:35, 45:51)] %>% left_join(icpmsAcc, ., by = "id")
+
+#check how good trial 4 value and median line up
+huskmelt <- melt(icpmshusk)
+
+bytype <- huskmelt[1:73,1] %>% as.data.frame()
+
+for(i in 1:6){
+  bytype <- bytype %>% cbind(huskmelt[(i*511-510):(i*511),3])
+}
+
+colnames(bytype) <- c("id", "median", "medianZ", "trial4", "trial4Z", "trial5", "trial5Z")
+
+#comparing median to trial4
+xyplot(medianZ^(1/3)~trial4Z^(1/3), data = bytype, type = c("p","r"))
+bytype <- bytype %>% mutate(medianZt = medianZ^(1/3), trial4Zt = trial4Z^(1/3))
+lm(medianZt~trial4Z^(1/3), data = bytype) %>% summary()
+```
+
+plot trial5 data to trial4/median data (UNFINISHED)
+```{r, echo = FALSE, fig.width = 10, fig.height = 7}
+#visualizing individuals for all elements
+ggplot(icpmshusk) + geom_point(aes(id, medianp, color = "blue")) +geom_point(aes(id, p.y, color = "red")) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Phosphorous (ppb) by ID")
+ggplot(icpms, aes(id, mn)) + geom_boxplot() + geom_point(aes(id, mn, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Manganese (ppb) by ID")
+ggplot(icpms, aes(id, fe)) + geom_boxplot() + geom_point(aes(id, fe, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Iron (ppb) by ID")
+ggplot(icpms, aes(id, zn)) + geom_boxplot() + geom_point(aes(id, zn, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Zinc (ppb) by ID")
+ggplot(icpms, aes(id, as)) + geom_boxplot() + geom_point(aes(id, as, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Arsenic (ppb) by ID")
+ggplot(icpms, aes(id, cd)) + geom_boxplot() + geom_point(aes(id, cd, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Cadmium (ppb) by ID")
+ggplot(icpms, aes(id, pb)) + geom_boxplot() + geom_point(aes(id, pb, color = trial)) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("Normalized Lead (ppb) by ID")
+```
+
