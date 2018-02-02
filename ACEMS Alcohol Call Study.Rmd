@@ -1,0 +1,111 @@
+---
+title: "Amherst College Emergency Medical Services (ACEMS)\n Study on Alcohol-Related Calls and Transports"
+output:
+  pdf_document:
+    fig_height: 3.5
+    fig_width: 6
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+dyn.load('/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/jre/lib/server/libjvm.dylib')
+knitr::opts_chunk$set(echo = TRUE)
+library(mosaic); library(xlsx); library(tidyverse); library(lubridate); library(knitr); library(captioner)
+
+figureCap <- captioner(prefix = "Figure")
+
+setwd("/Users/hufengling/OneDrive - Amherst College/Documents/Amherst/Junior Semester 2")
+
+df <- read.xlsx("ACEMS Metadata FULL.xlsx", 1)
+
+levels(df$Call) <- tolower(levels(df$Call))
+
+df <- df %>% 
+  mutate(Alc = ifelse(Call == "etoh", "EtOH", "Non-EtOH"), Alc = ifelse(is.na(df$Call), "Non-EtOH", Alc)) %>% 
+  mutate(AlcTransport = ifelse(Alc == "EtOH" & Result == "Care transferred to AFD", "EtOH Transport", "No EtOH Transport")) %>% mutate(DayOfWeek = weekdays(Date), Month = month(Date))
+
+df$YearMonth <- format(as.Date(df$Date), "%Y-%m")
+
+df <- df %>% filter(Year != 2018)
+
+#df <- df %>% mutate(DayType = ifelse(DayOfWeek == "Saturday" | DayOfWeek == "Sunday", "Weekend"))
+
+df$Alc <- factor(df$Alc)
+df$AlcTransport <- factor(df$AlcTransport)
+df$DayOfWeek <- factor(df$DayOfWeek)
+df$Year <- factor(df$Year)
+df$Semester <- factor(df$Semester, c("S15","F15","S16","F16","S17","F17"))
+```
+
+##Context
+In a recent email (Update on the Party Policy and Registration) sent out by the Office of Student Affairs, Amherst College claimed that "Last fall, hospital transports related to intoxication exceeded transports for the entire previous academic year. In some cases, alcohol levels of transported students were higher than we have ever seen, so high as to put students’ lives in grave danger." 
+
+ACEMS would like to officially address this claim by presenting our full internal semesterly analysis on alcohol-related calls, which tells a more complete story of alcohol use on campus, and clarify our commitment to the medical safety of the student body. By doing so, we hope to maintain your trust in our abilities to serve you and encourage you to continue to call for medical assistance when necessary.
+
+##Looking at the Data
+Exploring ACEMS-collected data dating as back to the start of Spring semester of 2015, we see that, while alcohol-related transports in Fall 2017 exceeded those of both semesters in the previous academic year, this observation can be mostly explained disproportionately low number of total ACEMS calls and ambulance transports in Spring 2017. 
+
+If we were to scale total call volume and total ambulance transports from Spring 2017 to expected numbers, while keeping alcohol call and transport proportions constant, this observation would no longer hold true.
+
+|Semester | # of Alcohol-related Transports| # of Total Transports| # of Alcohol-related Calls| # of Total Calls|
+|:--------|-------------------------:|---------------:|--------------------:|----------:|
+|Spring 2015 (S15)    |                        17|              51|                   37|        159|
+|Fall 2015 (F15)      |                        24|              48|                   55|        140|
+|Spring 2016 (S16)      |                        16|              49|                   32|        127|
+|Fall 2016 (F16)      |                        14|              46|                   30|        125|
+|Spring 2017 (S17)      |                         9|              18|                   21|         91|
+|Fall 2017 (F17)      |                        26|              49|                   49|        150|
+
+```{r, echo = FALSE, include = FALSE}
+df %>% group_by(Semester) %>% summarize(NumberOfAlcoholTransports = tally(AlcTransport)[1], 
+                                        TotalTransports = tally(Result)[3],
+                                        NumberOfAlcoholCalls = tally(Alc)[1],
+                                        TotalCalls = n()) %>% data.frame() %>% kable()
+
+```
+
+When looking at proportions of alcohol-related calls and transports out of total calls and transports, we see no statistical evidence that alcohol use was out of the ordinary last semester. Looking at the plots below, we see that, while there is a numerical increase in the proportion of both alcohol-related calls and transports, error bars imply this numerical difference is not statistically significant. This implies a lack of evidence for any difference between Fall 2017 alcohol-related calls and transports and those of any other semester.
+
+```{r, echo = FALSE, fig.cap = "Line plot by semester of proportions of ACEMS calls related to alcohol use. Error bars display 95% confidence intervals for each semester."}
+byMonthPropAlc <- df %>% 
+  group_by(Semester) %>% 
+  summarize(propAlc = binom.test(Alc, success = "EtOH")[[5]], AlcLow = binom.test(Alc)[[4]][1], AlcHigh = binom.test(Alc)[[4]][2], n = n())
+
+byMonthPropAlc$Semester = factor(byMonthPropAlc$Semester, c("S15","F15","S16","F16","S17","F17"))
+
+ggplot(byMonthPropAlc, aes(x = Semester, y = propAlc, group = 1)) + 
+  geom_point() + 
+  geom_line() +
+  geom_errorbar(aes(ymin=AlcLow, ymax=AlcHigh), width=.2,
+                 position=position_dodge(.9)) +
+  scale_y_continuous(limits = c(0, 0.5)) +
+  ggtitle("Proportion of Alcohol-related Calls") +
+  labs(x = "Semester", y = "Proportion")
+```
+
+```{r, echo = FALSE, fig.cap = "Line plot by semester of proportions of ACEMS transports related to alcohol use. Error bars display 95% confidence intervals for each semester."}
+byMonthPropAlcTrans <- df %>% 
+  group_by(Semester) %>% 
+  summarize(propAlcTrans = binom.test(AlcTransport, success = "EtOH Transport")[[5]], AlcTransLow = binom.test(AlcTransport)[[4]][1], AlcTransHigh = binom.test(AlcTransport)[[4]][2], n = n())
+
+byMonthPropAlcTrans$Semester = factor(byMonthPropAlcTrans$Semester, c("S15","F15","S16","F16","S17","F17"))
+
+ggplot(byMonthPropAlcTrans, aes(x = Semester, y = propAlcTrans, group = 1)) + 
+  geom_point() + 
+  geom_line() +
+  geom_errorbar(aes(ymin=AlcTransLow, ymax=AlcTransHigh), width=.2,
+                 position=position_dodge(.9)) +
+  scale_y_continuous(limits = c(0, 0.3)) +
+  ggtitle("Proportion of Alcohol-related Transports") +
+  labs(x = "Semester", y = "Proportion")
+```
+
+##Conclusions
+There is no statistical evidence of any change between Fall 2017 and previous semesters for either alcohol-related calls or alcohol-related transports.
+
+ACEMS does not have readily-available quantitative data regarding severity of intoxication in individuals transported to the hospital and cannot comment on whether or not alcohol levels in transported students last semester were more dangerous than those of previous semesters.
+
+No ACEMS members, including those who have been responding to alcohol-related calls for multiple semesters, have reported subjective increases in alcohol levels in transported students.
+
+Please continue to call ACEMS at (413) 542-2111 for any medical emergency, including alcohol-related ones. Our priority is your safety. Going forward, we plan to work with Amherst College administrators to clarify the details of our medical amnesty policy and athlete-confidentiality policy to better serve you. 
+
