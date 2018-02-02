@@ -1,0 +1,390 @@
+---
+title: "Weixian Data Manipulation"
+author: "Fengling Hu"
+date: "April 8, 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+#processing and joining maternal with epi
+```{r}
+dyn.load('/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/jre/lib/server/libjvm.dylib')
+library(mosaic); library(xlsx); library(tidyverse); library(chinese.misc); library(mice); library(lubridate)
+
+setwd("/Users/hufengling/OneDrive - Amherst College/Documents/NPLD/Weixian Impact Study/Data/Processing/Preliminary")
+
+# Reading data files
+data13 <- read.xlsx("2013 maternal.xlsx", 1, stringsAsFactors = FALSE)
+data14 <- read.xlsx("2014 maternal.xlsx", 1, stringsAsFactors = FALSE)
+data15 <- read.xlsx("EXP 2015 maternal.xlsx", 1, stringsAsFactors = FALSE)
+
+#nicu13 <- read.xlsx("2013 nicu.xlsx", 1, stringsAsFactors = FALSE)
+#nicu14 <- read.xlsx("2014 nicu.xlsx", 1, stringsAsFactors = FALSE)
+#nicu15 <- read.xlsx("2015 nicu.xlsx", 1, stringsAsFactors = FALSE)
+
+epi13 <- read.xlsx("2013 epi.xlsx", 1,stringsAsFactors = FALSE)
+epi14 <- read.xlsx("2014 epi.xlsx", 1, stringsAsFactors = FALSE)
+epi15 <- read.xlsx("EXP 2015 epi.xlsx", 1, stringsAsFactors = FALSE)
+#epiother <- read.xlsx("epi unknown.xlsx", 1, stringsAsFactors = FALSE)
+
+#matnic13 <- read.xlsx("2013 matnic.xlsx", 1, stringsAsFactors = FALSE)
+#matnic14 <- read.xlsx("2014 matnic.xlsx", 1, stringsAsFactors = FALSE)
+#matnic15 <- read.xlsx("2015 matnic.xlsx", 1, stringsAsFactors = FALSE)
+
+#remove all NA rows
+all <- list(data13, data14, data15, nicu13, nicu14, nicu15, epi13, epi14, epi15, epiother, matnic13, matnic14, matnic15)
+
+ind <- vector("list", 13)
+for(i in 1:13){
+  ind[[i]] <- apply(all[[i]], 1, function(x) all(is.na(x)))
+  all[[i]] <- all[[i]][!ind[[i]], ]
+}
+
+data13 <- all[[1]]
+data14 <- all[[2]]
+data15 <- all[[3]]
+nicu13 <- all[[4]]
+nicu14 <- all[[5]]
+nicu15 <- all[[6]]
+epi13 <- all[[7]]
+epi14 <- all[[8]]
+epi15 <- all[[9]]
+epiother <- all[[10]]
+matnic13 <- all[[11]]
+matnic14 <- all[[12]]
+matnic15 <- all[[13]]
+
+rm(all, i, ind)
+
+
+
+#join data13 and epi13 together
+temp <- matrix(nrow = (nrow(data13) - nrow(epi13)), ncol = ncol(epi13))
+colnames(temp) <- colnames(epi13)
+dataepi13 <- rbind(epi13, temp) %>% cbind(data13, .) %>% as.data.frame()
+
+test1 = (dataepi13[,3] == dataepi13[,26]) %>%  as.data.frame() #test if join worked
+table(test1)
+
+#join data14 and epi14 together
+temp <- matrix(nrow = (nrow(data14) - nrow(epi14)), ncol = ncol(epi14))
+colnames(temp) <- colnames(epi14)
+dataepi14 <- rbind(epi14, temp) %>% cbind(data14, .) %>% as.data.frame()
+
+test1 = (dataepi14[,3] == dataepi14[,26]) %>%  as.data.frame() #test if join worked
+table(test1)
+
+#join data15 and epi15 together
+temp <- matrix(nrow = (nrow(data15) - nrow(epi15)), ncol = ncol(epi15))
+colnames(temp) <- colnames(epi15)
+dataepi15 <- rbind(epi15, temp) %>% cbind(data15, .) %>% as.data.frame()
+
+test1 = (dataepi15[,3] == dataepi15[,26]) %>%  as.data.frame() #test if join worked
+table(test1)
+
+rm(temp, test1)
+```
+
+#define df variables and remove data entry errors
+```{r}
+#make df and define variables
+df <- rbind(dataepi13, dataepi14, dataepi15)
+
+df <- df[,-c(26:31)]
+
+df$epidate <- as.numeric(df$epidate)
+
+df <- df %>% mutate(laborepi = ifelse(is.na(laborepi),0,laborepi), indate = indate + 20000000, outdate = outdate + 20000000, dateoftemp = dateoftemp + 20000000, epidate = epidate + 20000000) #fill NAs with 0s, convert yymmdd format to yyyymmdd
+
+df$mrn1 <- factor(df$mrn1)
+df$mrn2 <- factor(df$mrn2)
+df$shortname <- factor(df$shortname)
+df$age <- as.numeric(df$age)
+df$height <- as.numeric(df$height)
+df$weight <- as.numeric(df$weight)
+df$para <- as.numeric(df$para)
+df$abortus <- as.numeric(df$abortus)
+df$preterm <- as.numeric(df$preterm)
+df$term <- as.numeric(df$term)
+df$babyweight <- as.numeric(df$babyweight)
+df$obclinic <- factor(df$obclinic)
+df$csection <- factor(df$csection)
+df$epidural <- factor(df$epidural)
+df$transfusion <- factor(df$transfusion)
+df$antibiotics <- factor(df$antibiotics)
+df$foley <- factor(df$foley)
+df$indate <- as.character(df$indate)
+df$outdate <- as.character(df$outdate)
+df$dateoftemp <- as.character(df$dateoftemp)
+df$laborepi <- factor(df$laborepi)
+df$intrapartum <- factor(df$intrapartum)
+df$epidate <- as.character(df$epidate)
+
+rm(data13, data14, data15, epi13, epi14, epi15)
+
+
+
+#remove data entry errors
+bwplot(~age, data=df) #check age
+df <- df %>% mutate(age = ifelse(age > 100, NA, age)) %>% mutate(age = ifelse(age < 12, NA, age)) #set age greater than 100 and less than 12 to NA
+bwplot(~age, data=df)
+
+bwplot(~height, data=df) #check height
+df <- df %>% mutate(height = ifelse(height < 135, NA, height)) #set height less than 135 to NA (135 is <5th percentile for 12 year old Chinese females)
+bwplot(~height, data=df)
+
+bwplot(~weight, data=df) #check weight
+df <- df %>% mutate(weight = ifelse(weight > 300, NA, weight)) %>% mutate(weight = ifelse(weight < 35, NA, weight))
+bwplot(~weight, data=df)
+
+bwplot(~gravida, data = df)
+df <- df %>% mutate(gravida = ifelse(gravida > 25, NA, gravida)) %>% mutate(gravida = ifelse(gravida == 0, NA, gravida))
+bwplot(~gravida, data = df)
+
+bwplot(~para, data = df)
+df <- df %>% mutate(para = ifelse(para > 25, NA, para))
+bwplot(~para, data = df)
+
+bwplot(~abortus, data = df)
+
+bwplot(~preterm, data = df)
+
+bwplot(~term, data = df)
+df <- df %>% mutate(term = ifelse(term > 15, NA, term))
+bwplot(~term, data = df)
+
+bwplot(~babyweight, data = df)
+df <- df %>% mutate(babyweight = ifelse(babyweight > 10000, NA, babyweight)) %>% mutate(babyweight = ifelse(babyweight < 250, NA, babyweight))
+bwplot(~babyweight, data = df)
+
+histogram(~dateoftemp, data = df)
+
+histogram(~laborepi, data = df)
+
+histogram(~intrapartum, data = df)
+```
+
+#imputing dates and others
+```{r}
+#"impute" dates for pts with epidural dates
+df <- df %>% mutate(indate = ifelse(is.na(df$indate), epidate, indate)) #impute indate as epidate for patients who have known epidate
+
+df$indate <- as.Date(df$indate, "%Y%m%d")
+df$outdate <- as.Date(df$outdate, "%Y%m%d")
+df$dateoftemp <- as.Date(df$dateoftemp, "%Y%m%d")
+df$epidate <- as.Date(df$epidate, "%Y%m%d")
+
+missingDates <- seq(as.Date("2014-10-16"), as.Date("2015-5-31"), by="days") #list dates
+
+#impute dates for pts without epidural dates and without epidurals
+(is.na(df$indate) & df$epidural == 0) %>% sum() #find out how many patients did not get epidurals
+
+set.seed(10)
+dayGen <- sample(c(rep(9, 191), rep(8, 37)))
+dayGen <- rep(missingDates, dayGen)
+
+df[16840:18854, 24] <- dayGen #8-9 patients (who did not receive epidural) "imputed" with dates
+
+#impute dates for pts without epidural dates and with epidurals
+is.na(df$indate) %>% sum() #find out how many patients still don't have indates
+
+set.seed(15)
+dayGen <- sample(c(rep(11, 115), rep(10, 113)))
+dayGen <- rep(missingDates, dayGen)
+
+df[is.na(df$indate),24] = dayGen #gives me dates, but do not seem correct...
+
+df <- df %>% mutate(month = month(indate), year = year(indate)) %>% filter(!(year == 2015 & month >= 6))
+
+rm(dayGen, missingDates)
+```
+
+```{r}
+#split data into notes and actual data
+identifiers <- c(1,2,3,12,14,15,21,23,24,25,28)
+ID <- 1:nrow(df)
+
+notes <- df[,identifiers]
+data <- df[,-identifiers]
+
+impMethods <- c(rep("norm",10),rep("logreg",5),"norm","logreg","logreg")
+
+#characterize missingness
+md.pattern(data)
+aggr_plot <- aggr(data, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(data), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"), seed = 100)
+
+#impute data
+imputed_data <- mice(data, methods = impMethods)
+
+summary(imputed_data)
+
+rm(identifiers, ID, impMethods, aggr_plot)
+```
+
+#assigning pre/during/post
+```{r}
+# #sort by indate and split into pre, during, post
+# df <- df[order(df$indate), ]
+# 
+# indexStart <- grep("140615", df$indate)[1]
+# indexEnd <- grep("140621", df$indate)[1]
+# 
+# timePeriod <- c(rep("Before", indexStart-1), rep("During", indexEnd-indexStart), rep("After", nrow(df)-indexEnd+1))
+# 
+# df <- cbind(df, timePeriod)
+# 
+# before <- df %>% filter(timePeriod == "Before")
+# during <- df %>% filter(timePeriod == "During")
+# after <- df %>% filter(timePeriod == "After")
+# 
+# rm(indexStart, indexEnd, timePeriod)
+```
+ 
+#numbers by month
+```{r}
+#values by month
+ageMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(ageMean = mean(age, na.rm = TRUE), ageSD = sd(age, na.rm = TRUE), ageMiss = sum(is.na(age)), ageNum = sum(!is.na(age))) %>% as.data.frame()
+
+heightMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(heightMean = mean(height, na.rm = TRUE), heightSD = sd(height, na.rm = TRUE), heightMiss = sum(is.na(height)), heightNum = sum(!is.na(height))) %>% as.data.frame()
+
+weightMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(weightMean = mean(weight, na.rm = TRUE), weightSD = sd(weight, na.rm = TRUE), weightMiss = sum(is.na(weight)), weightNum = sum(!is.na(weight))) %>% as.data.frame()
+
+gravidaMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(gravidaMean = mean(gravida, na.rm = TRUE), gravidaSD = sd(gravida, na.rm = TRUE), gravidaMiss = sum(is.na(gravida)), gravidaNum = sum(!is.na(gravida))) %>% as.data.frame()
+
+paraMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(paraMean = mean(para, na.rm = TRUE), paraSD = sd(para, na.rm = TRUE), paraMiss = sum(is.na(para)), paraNum = sum(!is.na(para))) %>% as.data.frame()
+
+abortusMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(abortusMean = mean(abortus, na.rm = TRUE), abortusSD = sd(abortus, na.rm = TRUE), abortusMiss = sum(is.na(abortus)), abortusNum = sum(!is.na(abortus))) %>% as.data.frame()
+
+highesttempMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(highesttempMean = mean(highesttemp, na.rm = TRUE), highesttempSD = sd(highesttemp, na.rm = TRUE), highesttempMiss = sum(is.na(highesttemp)), highesttempNum = sum(!is.na(highesttemp))) %>% as.data.frame()
+
+csectionMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(csectionProp = binom.test(csection, success = 1)[[5]], csectionLow = binom.test(csection, success = 1)[[4]][1], csectionHigh = binom.test(csection, success = 1)[[4]][2], csectionMiss = sum(is.na(csection)), csectionNum = sum(!is.na(csection))) %>% as.data.frame()
+
+epiduralMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(epiduralProp = binom.test(epidural, success = 1)[[5]], epiduralLow = binom.test(epidural, success = 1)[[4]][1], epiduralHigh = binom.test(epidural, success = 1)[[4]][2], epiduralMiss = sum(is.na(epidural)), epiduralNum = sum(!is.na(epidural))) %>% as.data.frame()
+
+transfusionMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(transfusionProp = binom.test(transfusion, success = 1)[[5]], transfusionLow = binom.test(transfusion, success = 1)[[4]][1], transfusionHigh = binom.test(transfusion, success = 1)[[4]][2], transfusionMiss = sum(is.na(transfusion)), transfusionNum = sum(!is.na(transfusion))) %>% as.data.frame()
+
+antibioticsMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(antibioticsProp = binom.test(antibiotics, success = 1)[[5]], antibioticsLow = binom.test(antibiotics, success = 1)[[4]][1], antibioticsHigh = binom.test(antibiotics, success = 1)[[4]][2], antibioticsMiss = sum(is.na(antibiotics)), antibioticsNum = sum(!is.na(antibiotics))) %>% as.data.frame()
+
+foleyMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(foleyProp = binom.test(foley, success = 1)[[5]], foleyLow = binom.test(foley, success = 1)[[4]][1], foleyHigh = binom.test(foley, success = 1)[[4]][2], foleyMiss = sum(is.na(foley)), foleyNum = sum(!is.na(foley))) %>% as.data.frame()
+
+laborepiMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(laborepiProp = binom.test(laborepi, success = 1)[[5]], laborepiLow = binom.test(laborepi, success = 1)[[4]][1], laborepiHigh = binom.test(laborepi, success = 1)[[4]][2], laborepiMiss = sum(is.na(laborepi)), laborepiNum = sum(!is.na(laborepi))) %>% as.data.frame()
+
+intrapartumMonth <- df %>% 
+  group_by(year, month) %>% 
+  summarize(intrapartumProp = binom.test(intrapartum, success = 1)[[5]], intrapartumLow = binom.test(intrapartum, success = 1)[[4]][1], intrapartumHigh = binom.test(intrapartum, success = 1)[[4]][2], intrapartumMiss = sum(is.na(intrapartum)), intrapartumNum = sum(!is.na(intrapartum))) %>% as.data.frame()
+```
+
+#write to Excel
+```{r}
+write.xlsx(ageMonth, file="prelimByMonth.xlsx", sheetName="age", 
+           append=FALSE)
+write.xlsx(heightMonth, file="prelimByMonth.xlsx", sheetName="height", 
+           append=TRUE)
+write.xlsx(weightMonth, file="prelimByMonth.xlsx", sheetName="weight", 
+           append=TRUE)
+write.xlsx(gravidaMonth, file="prelimByMonth.xlsx", sheetName="gravida", 
+           append=TRUE)
+write.xlsx(paraMonth, file="prelimByMonth.xlsx", sheetName="para", 
+           append=TRUE)
+write.xlsx(abortusMonth, file="prelimByMonth.xlsx", sheetName="abortus", 
+           append=TRUE)
+write.xlsx(highesttempMonth, file="prelimByMonth.xlsx", sheetName="highesttemp", 
+           append=TRUE)
+write.xlsx(csectionMonth, file="prelimByMonth.xlsx", sheetName="csection", 
+           append=TRUE)
+write.xlsx(epiduralMonth, file="prelimByMonth.xlsx", sheetName="epidural", 
+           append=TRUE)
+write.xlsx(transfusionMonth, file="prelimByMonth.xlsx", sheetName="transfusion", 
+           append=TRUE)
+write.xlsx(antibioticsMonth, file="prelimByMonth.xlsx", sheetName="antibiotics", 
+           append=TRUE)
+write.xlsx(foleyMonth, file="prelimByMonth.xlsx", sheetName="foley", 
+           append=TRUE)
+write.xlsx(laborepiMonth, file="prelimByMonth.xlsx", sheetName="laborepi", 
+           append=TRUE)
+write.xlsx(intrapartumMonth, file="prelimByMonth.xlsx", sheetName="intrapartum", 
+           append=TRUE)
+```
+
+
+#numbers by pre/during/post
+```{r}
+#get preliminary numbers
+tally(~timePeriod, data = df)
+
+#age
+favstats(before$age)
+favstats(before$height)
+favstats(before$weight)
+favstats(before$gravida)
+favstats(before$para)
+favstats(before$abortus)
+favstats(before$babyweight)
+tally(~csection, data = before)
+tally(~epidural, data = before)
+tally(~transfusion, data = before)
+tally(~antibiotics, data = before)
+tally(~foley, data = before)
+favstats(before$highesttemp)
+tally(~laborepi, data = before)
+tally(~intrapartum, data = before)
+
+favstats(during$age)
+favstats(during$height)
+favstats(during$weight)
+favstats(during$gravida)
+favstats(during$para)
+favstats(during$abortus)
+favstats(during$babyweight)
+tally(~csection, data = during)
+tally(~epidural, data = during)
+tally(~transfusion, data = during)
+tally(~antibiotics, data = during)
+tally(~foley, data = during)
+favstats(during$highesttemp)
+tally(~laborepi, data = during)
+tally(~intrapartum, data = during)
+
+favstats(after$age)
+favstats(after$height)
+favstats(after$weight)
+favstats(after$gravida)
+favstats(after$para)
+favstats(after$abortus)
+favstats(after$babyweight)
+tally(~csection, data = after)
+tally(~epidural, data = after)
+tally(~transfusion, data = after)
+tally(~antibiotics, data = after)
+tally(~foley, data = after)
+favstats(after$highesttemp)
+tally(~laborepi, data = after)
+tally(~intrapartum, data = after)
+```
